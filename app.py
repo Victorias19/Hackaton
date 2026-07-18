@@ -17,19 +17,19 @@ st.set_page_config(page_title="Demo", page_icon="⚡", layout="wide")
 
 # ----------------------------------------------------------------------------
 # PROVIDER SWITCH
-# Currently set up for Google Gemini via its OpenAI-compatible endpoint,
-# so you can test for free now with a key from aistudio.google.com.
+# Currently set up for Groq via its OpenAI-compatible endpoint — free, no card,
+# works everywhere. Key from console.groq.com (starts with gsk_).
 #
-# To switch to real OpenAI (e.g. once you have hackathon credits), either:
-#   - set BASE_URL = None below, and put your OpenAI key in secrets, OR
-#   - just leave it; Gemini works fine for the whole demo.
-# The rest of the app doesn't change either way.
+# To switch to OpenAI later (e.g. hackathon credits): set BASE_URL = None,
+# change the model names below to gpt-4o-mini etc., and in rag.py flip
+# EMBED_ENABLED back on. The rest of the app stays the same.
 # ----------------------------------------------------------------------------
-BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"  # Gemini
-# BASE_URL = None  # <- uncomment this line to use plain OpenAI instead
+BASE_URL = "https://api.groq.com/openai/v1"  # Groq
+# BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"  # Gemini
+# BASE_URL = None  # <- OpenAI
 
 # API key: pulled from Streamlit secrets in the cloud, or sidebar as fallback.
-# Works for either provider — the secret is just named OPENAI_API_KEY.
+# Works for any provider — the secret is just named OPENAI_API_KEY.
 def get_client():
     key = st.secrets.get("OPENAI_API_KEY", None)
     if not key:
@@ -75,11 +75,11 @@ def run_core_logic(user_input: str, client: OpenAI, context_docs: list[str]) -> 
 # ----------------------------------------------------------------------------
 with st.sidebar:
     st.header("Settings")
-    # Gemini model names (free tier). If you switch BASE_URL to OpenAI,
+    # Groq model names (free tier). If you switch BASE_URL to OpenAI,
     # change these to e.g. "gpt-4o-mini", "gpt-4o".
     st.session_state["model"] = st.selectbox(
         "Model",
-        [ "gemini-3-flash", "gemini-1.5-flash"],
+        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
         index=0,
     )
     st.text_input(

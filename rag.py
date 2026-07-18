@@ -1,16 +1,25 @@
 """
-Minimal in-memory RAG. No external vector DB needed for a hackathon demo.
-build_index(docs, client) -> index
-retrieve(query, index, client, k) -> list[str] of top-k chunks
-Swap in Chroma/FAISS later only if you actually need scale.
+Minimal in-memory RAG with graceful fallback.
+
+If the provider supports embeddings (OpenAI, Gemini), we use semantic search.
+If it does NOT (Groq only does chat), we fall back to keyword overlap scoring,
+so file upload + retrieval still work for the demo — just less "semantic".
+
+Toggle EMBED_ENABLED to match your provider:
+  - Groq            -> EMBED_ENABLED = False  (uses keyword fallback)
+  - OpenAI / Gemini -> EMBED_ENABLED = True   (uses embeddings, set EMBED_MODEL)
 """
 
+import re
 import numpy as np
 from openai import OpenAI
 
-# Gemini embedding model (works via the OpenAI-compatible endpoint).
-# If you switch the app back to plain OpenAI, use "text-embedding-3-small".
-EMBED_MODEL = "text-embedding-004"
+# Groq has no embeddings endpoint, so keep this False while on Groq.
+EMBED_ENABLED = False
+
+# Only used when EMBED_ENABLED = True.
+# OpenAI: "text-embedding-3-small"   Gemini: "text-embedding-004"
+EMBED_MODEL = "text-embedding-3-small"
 
 
 def _chunk(text: str, size: int = 800, overlap: int = 100) -> list[str]:
@@ -30,23 +39,40 @@ def _embed(texts: list[str], client: OpenAI) -> np.ndarray:
 
 
 def build_index(docs: list[str], client: OpenAI) -> dict:
-    """Chunk all docs, embed them, return an in-memory index."""
+    """Chunk all docs. Embed only if embeddings are enabled."""
     all_chunks = []
     for d in docs:
         all_chunks.extend(_chunk(d))
-    if not all_chunks:
-        return {"chunks": [], "vectors": np.zeros((0, 1))}
-    vectors = _embed(all_chunks, client)
-    return {"chunks": all_chunks, "vectors": vectors}
+    index = {"chunks": all_chunks, "vectors": None}
+    if EMBED_ENABLED and all_chunks:
+        index["vectors"] = _embed(all_chunks, client)
+    return index
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
 def retrieve(query: str, index: dict, client: OpenAI, k: int = 3) -> list[str]:
-    """Return top-k chunks by cosine similarity."""
-    if not index["chunks"]:
+    """Top-k chunks. Semantic if embeddings available, else keyword overlap."""
+    chunks = index["chunks"]
+    if not chunks:
         return []
-    q = _embed([query], client)[0]
-    mat = index["vectors"]
-    # cosine similarity
-    sims = mat @ q / (np.linalg.norm(mat, axis=1) * np.linalg.norm(q) + 1e-9)
-    top = np.argsort(sims)[::-1][:k]
-    return [index["chunks"][i] for i in top]
+
+    if EMBED_ENABLED and index.get("vectors") is not None:
+        q = _embed([query], client)[0]
+        mat = index["vectors"]
+        sims = mat @ q / (np.linalg.norm(mat, axis=1) * np.linalg.norm(q) + 1e-9)
+        top = np.argsort(sims)[::-1][:k]
+        return [chunks[i] for i in top]
+
+    # Keyword fallback: score chunks by shared-word overlap with the query.
+    q_tokens = _tokens(query)
+    scored = []
+    for c in chunks:
+        overlap = len(q_tokens & _tokens(c))
+        scored.append((overlap, c))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    # If nothing overlaps, just return the first k chunks so context isn't empty.
+    top = [c for score, c in scored if score > 0][:k]
+    return top if top else chunks[:k]
