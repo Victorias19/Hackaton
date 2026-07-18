@@ -15,13 +15,29 @@ from rag import build_index, retrieve
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Demo", page_icon="⚡", layout="wide")
 
+# ----------------------------------------------------------------------------
+# PROVIDER SWITCH
+# Currently set up for Google Gemini via its OpenAI-compatible endpoint,
+# so you can test for free now with a key from aistudio.google.com.
+#
+# To switch to real OpenAI (e.g. once you have hackathon credits), either:
+#   - set BASE_URL = None below, and put your OpenAI key in secrets, OR
+#   - just leave it; Gemini works fine for the whole demo.
+# The rest of the app doesn't change either way.
+# ----------------------------------------------------------------------------
+BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"  # Gemini
+# BASE_URL = None  # <- uncomment this line to use plain OpenAI instead
+
 # API key: pulled from Streamlit secrets in the cloud, or sidebar as fallback.
+# Works for either provider — the secret is just named OPENAI_API_KEY.
 def get_client():
     key = st.secrets.get("OPENAI_API_KEY", None)
     if not key:
         key = st.session_state.get("api_key_input", None)
     if not key:
         return None
+    if BASE_URL:
+        return OpenAI(api_key=key, base_url=BASE_URL)
     return OpenAI(api_key=key)
 
 
@@ -59,8 +75,12 @@ def run_core_logic(user_input: str, client: OpenAI, context_docs: list[str]) -> 
 # ----------------------------------------------------------------------------
 with st.sidebar:
     st.header("Settings")
+    # Gemini model names (free tier). If you switch BASE_URL to OpenAI,
+    # change these to e.g. "gpt-4o-mini", "gpt-4o".
     st.session_state["model"] = st.selectbox(
-        "Model", ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini"], index=0
+        "Model",
+        ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"],
+        index=0,
     )
     st.text_input(
         "OpenAI API key (fallback)",

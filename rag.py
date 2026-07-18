@@ -8,7 +8,9 @@ Swap in Chroma/FAISS later only if you actually need scale.
 import numpy as np
 from openai import OpenAI
 
-EMBED_MODEL = "text-embedding-3-small"
+# Gemini embedding model (works via the OpenAI-compatible endpoint).
+# If you switch the app back to plain OpenAI, use "text-embedding-3-small".
+EMBED_MODEL = "text-embedding-004"
 
 
 def _chunk(text: str, size: int = 800, overlap: int = 100) -> list[str]:
