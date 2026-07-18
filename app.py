@@ -79,7 +79,7 @@ with st.sidebar:
     # change these to e.g. "gpt-4o-mini", "gpt-4o".
     st.session_state["model"] = st.selectbox(
         "Model",
-        ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"],
+        [ "gemini-3-flash", "gemini-1.5-flash"],
         index=0,
     )
     st.text_input(
