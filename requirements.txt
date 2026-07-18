@@ -1,3 +1,5 @@
-streamlit
-openai
-numpy
+streamlit>=1.40
+openai>=1.50
+numpy>=1.26
+pandas>=2.0
+scikit-learn>=1.4
