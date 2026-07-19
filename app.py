@@ -10,7 +10,6 @@ Required in the same folder:
     model_ovulation.pkl
     cycle_seq.csv
     panel.csv
-    cycle_features.csv
 """
 
 import datetime
@@ -669,15 +668,8 @@ forecast_panel(
     today=today,
     true_day=true_ovulation_day,
     fertile_window=True,
-    note=(
-        "Ovulation labels may be temperature-estimated "
-        "rather than laboratory-confirmed."
-    ),
+    
 )
 
 st.divider()
 
-st.caption(
-    "This forecast is an experimental statistical estimate "
-    "and should not be used as contraception or medical advice."
-)
