@@ -165,9 +165,8 @@ def _ovulation_passed(days_so_far, today):
     return None
 
 
-OVULATION_CUTOFF = 21          # cycle day after which we treat ovulation as passed
 
-OVULATION_CUTOFF = 21   # cycle day after which ovulation is treated as passed
+OVULATION_CUTOFF = 21  
 
 def forecast_panel(
     col, title, model, label, days, hist, today,
@@ -248,15 +247,12 @@ def forecast_panel(
         if x_range is not None:
             lo_day = max(lo_day, x_range[0])
             hi_day = min(hi_day, x_range[1])
-        full_days = np.arange(lo_day, hi_day + 1)
-
-        prob = (pred.set_index("day")["p_event_day"]
-                    .reindex(full_days, fill_value=0.0).rename("probability"))
-        surv = (pred.set_index("day")["surv"]
-                    .reindex(full_days).ffill().fillna(1.0).rename("not yet occurred"))
+        prob = pred.set_index("day")["p_event_day"].rename("probability")
+        surv = pred.set_index("day")["surv"].rename("not yet occurred")
         prob.index.name = "cycle day"
         surv.index.name = "cycle day"
 
+       
         st.caption("Estimated event probability by cycle day")
         st.bar_chart(prob, height=260, color=color)
         st.caption("Estimated probability the event has not occurred")
