@@ -561,39 +561,6 @@ else:
 # ============================================================
 
 st.divider()
-
-left, right = st.columns(2)
-
-forecast_panel(
-    col=left,
-    title="🩸 Next period",
-    model=model_men,
-    label="next period",
-    days=days,
-    hist=hist,
-    today=today,
-    true_day=true_period_day,
-)
-
-forecast_panel(
-    col=right,
-    title="🌱 Ovulation and fertile window",
-    model=model_ov,
-    label="ovulation",
-    days=days,
-    hist=hist,
-    today=today,
-    fertile_window=True,
-    
-)
-
-
-
-# ============================================================
-# Forecasts
-# ============================================================
-
-st.divider()
 shared = (today, today + 30)
 left, right = st.columns(2)
 
