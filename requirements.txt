@@ -1,5 +1,8 @@
 streamlit>=1.40
 openai>=1.50
-numpy>=1.26
-pandas>=2.0
-scikit-learn>=1.4
+scikit-survival==0.28.0
+scikit-learn==1.9.0
+numpy==2.5.1
+scipy==1.18.0
+pandas==2.3.3
+joblib==1.5.3
