@@ -131,26 +131,76 @@ for model_name, model_object in [
 # Adds: shared x-axis (symmetrical panels), fixed heights, per-panel colors,
 # and the "already occurred" guard.
 
+# Replace the entire forecast_panel in app.py with this.
+#
+# Option A: honest ovulation-passed detection from the temperature signal
+# (uses only wearable data the woman would actually have — never the true day).
+#
+# Behavior:
+#   - period panel: keeps the "already occurred" guard (period is observable)
+#   - ovulation panel: detects a sustained temperature rise in the data so far;
+#     if found, declares the fertile window passed and stops forecasting forward.
+#   - reference_day: shown only as a demo comparison, never used to gate anything.
+
+def _ovulation_passed(days_so_far, today):
+    """Detect a sustained post-ovulation temperature rise from observed data only.
+       Returns the estimated ovulation day (int) if detected, else None."""
+    if days_so_far is None or days_so_far.empty:
+        return None
+    for col in ("nightly_temperature", "temp_rel"):
+        if col not in days_so_far.columns:
+            continue
+        t = (days_so_far.sort_values("day")[["day", col]]
+             .dropna())
+        if len(t) < 6:
+            continue
+        vals = t[col].to_numpy(dtype=float)
+        dys = t["day"].to_numpy(dtype=float)
+        # compare each candidate split: baseline vs the 3 days after it
+        for i in range(3, len(vals) - 2):
+            baseline = vals[:i].mean()
+            after = vals[i:i + 3].mean()
+            if after - baseline > 0.20:            # ~0.2 sustained rise
+                return int(round(dys[i]))          # rise starts ~1 day post-ovulation
+    return None
+
+
 def forecast_panel(
     col, title, model, label, days, hist, today,
-    true_day=None, fertile_window=False, note=None,
-    x_range=None, color="#c0392b",
+    true_day=None, reference_day=None,
+    fertile_window=False, note=None, x_range=None, color="#c0392b",
 ):
     with col:
         st.subheader(title)
 
-        # event already happened -> don't forecast into the past
-        if true_day is not None and today >= true_day:
-            st.success(f"{label.capitalize()} already occurred on day {true_day}.")
-            st.caption("Move the slider earlier to see the forecast leading up to it.")
-            return
-
-        # only measurements available through today
+        # observed measurements available through today
         if not days.empty:
             days_so_far = days.loc[days["day"] <= today].copy()
         else:
             days_so_far = pd.DataFrame({"day": pd.Series(dtype=float)})
 
+        # --- PERIOD: observable event, honest to guard on true_day ---
+        if true_day is not None and today >= true_day:
+            st.success(f"{label.capitalize()} already occurred on day {true_day}.")
+            st.caption("Move the slider earlier to see the forecast leading up to it.")
+            return
+
+        # --- OVULATION: detect 'passed' from the SIGNAL, not the answer ---
+        passed_day = None
+        if fertile_window:
+            passed_day = _ovulation_passed(days_so_far, today)
+            if passed_day is not None and today >= passed_day:
+                st.warning(
+                    f"Temperature has risen — ovulation likely already occurred "
+                    f"around day {passed_day}. The fertile window has passed for this cycle."
+                )
+                if reference_day is not None:
+                    st.caption(f"(Demo reference: recorded ovulation day {reference_day}; "
+                               f"signal-based estimate {passed_day}.)")
+                st.caption("Move the slider earlier to see the forecast leading up to it.")
+                return
+
+        # --- run the forecast ---
         try:
             pred = model.predict_day(days_so_far, hist, today)
         except Exception as e:
@@ -167,8 +217,7 @@ def forecast_panel(
         pred["surv"] = pd.to_numeric(pred["surv"], errors="coerce")
         pred = pred.dropna(subset=["day"]).sort_values("day")
 
-        total = float(pred["p_event_day"].sum())
-        if total <= 0:
+        if float(pred["p_event_day"].sum()) <= 0:
             st.warning("No event probability mass.")
             return
 
@@ -186,9 +235,11 @@ def forecast_panel(
         else:
             m2.metric("Likely window", "—")
 
-        if true_day is not None:
-            st.metric("Actual event", f"day {true_day}",
-                      f"prediction error {peak - true_day:+d} days")
+        # reference day: demo comparison only, never gates the forecast
+        actual = true_day if true_day is not None else reference_day
+        if actual is not None:
+            st.metric("Actual event (reference)", f"day {actual}",
+                      f"prediction error {peak - actual:+d} days")
 
         if fertile_window:
             fs, fe = peak - 5, peak + 1
@@ -197,7 +248,7 @@ def forecast_panel(
             else:
                 st.info(f"Predicted fertile window: cycle day {fs}–{fe}")
 
-        # ---- shared, continuous day axis (symmetrical panels) ----
+        # ---- symmetrical, continuous day axis ----
         lo_day, hi_day = int(pred["day"].min()), int(pred["day"].max())
         if x_range is not None:
             lo_day, hi_day = x_range
@@ -210,7 +261,6 @@ def forecast_panel(
         prob.index.name = "cycle day"
         surv.index.name = "cycle day"
 
-        # ---- colored charts (color set per panel) ----
         st.caption("Estimated event probability by cycle day")
         st.bar_chart(prob, height=260, color=color)
         st.caption("Estimated probability the event has not occurred")
@@ -218,7 +268,6 @@ def forecast_panel(
 
         if note:
             st.caption(note)
-
 # ============================================================
 # Page
 # ============================================================
