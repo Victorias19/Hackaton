@@ -246,7 +246,8 @@ def forecast_panel(
 
         lo_day, hi_day = int(pred["day"].min()), int(pred["day"].max())
         if x_range is not None:
-            lo_day, hi_day = x_range
+            lo_day = max(lo_day, x_range[0])
+            hi_day = min(hi_day, x_range[1])
         full_days = np.arange(lo_day, hi_day + 1)
 
         prob = (pred.set_index("day")["p_event_day"]
@@ -594,16 +595,24 @@ forecast_panel(
     
 )
 
-st.divider()
+
+
+# ============================================================
+# Forecasts
+# ============================================================
 
 st.divider()
-shared = (today, today + 45)
+shared = (today, today + 30)
 left, right = st.columns(2)
 
-forecast_panel(col=left, title="🩸 Next period", model=model_men, label="next period",
-               days=days, hist=hist, today=today, true_day=true_period_day,
-               x_range=shared, color="#c0392b")
+forecast_panel(
+    col=left, title="🩸 Next period", model=model_men, label="next period",
+    days=days, hist=hist, today=today, true_day=true_period_day,
+    x_range=shared, color="#c0392b",
+)
 
-forecast_panel(col=right, title="🌱 Ovulation & fertile window", model=model_ov, label="ovulation",
-               days=days, hist=hist, today=today, true_day=None, reference_day=true_ovulation_day,
-               fertile_window=True, x_range=shared, color="#27ae60")
+forecast_panel(
+    col=right, title="🌱 Ovulation & fertile window", model=model_ov, label="ovulation",
+    days=days, hist=hist, today=today, true_day=None, reference_day=true_ovulation_day,
+    fertile_window=True, x_range=shared, color="#27ae60",
+)
