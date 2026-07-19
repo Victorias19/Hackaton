@@ -165,6 +165,8 @@ def _ovulation_passed(days_so_far, today):
     return None
 
 
+OVULATION_CUTOFF = 21          # cycle day after which we treat ovulation as passed
+
 def forecast_panel(
     col, title, model, label, days, hist, today,
     true_day=None, reference_day=None,
@@ -185,20 +187,16 @@ def forecast_panel(
             st.caption("Move the slider earlier to see the forecast leading up to it.")
             return
 
-        # --- OVULATION: detect 'passed' from the SIGNAL, not the answer ---
-        passed_day = None
-        if fertile_window:
-            passed_day = _ovulation_passed(days_so_far, today)
-            if passed_day is not None and today >= passed_day:
-                st.warning(
-                    f"Temperature has risen — ovulation likely already occurred "
-                    f"around day {passed_day}. The fertile window has passed for this cycle."
-                )
-                if reference_day is not None:
-                    st.caption(f"(Demo reference: recorded ovulation day {reference_day}; "
-                               f"signal-based estimate {passed_day}.)")
-                st.caption("Move the slider earlier to see the forecast leading up to it.")
-                return
+        # --- OVULATION: simple biological day cutoff ---
+        if fertile_window and today > OVULATION_CUTOFF:
+            st.warning(
+                f"Past the typical ovulation window (usually by ~day {OVULATION_CUTOFF}). "
+                "Ovulation has most likely already occurred this cycle."
+            )
+            if reference_day is not None:
+                st.caption(f"(Demo reference: recorded ovulation day {reference_day}.)")
+            st.caption("Move the slider earlier to see the fertile-window forecast.")
+            return
 
         # --- run the forecast ---
         try:
