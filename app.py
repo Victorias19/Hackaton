@@ -242,15 +242,12 @@ def forecast_panel(
                 st.success("Predicted fertile window is active now.")
             else:
                 st.info(f"Predicted fertile window: cycle day {fs}–{fe}")
-
-        lo_day, hi_day = int(pred["day"].min()), int(pred["day"].max())
-        if x_range is not None:
-            lo_day = max(lo_day, x_range[0])
-            hi_day = min(hi_day, x_range[1])
+        
         prob = pred.set_index("day")["p_event_day"].rename("probability")
         surv = pred.set_index("day")["surv"].rename("not yet occurred")
         prob.index.name = "cycle day"
         surv.index.name = "cycle day"
+        
 
        
         st.caption("Estimated event probability by cycle day")
