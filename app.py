@@ -126,215 +126,87 @@ for model_name, model_object in [
 # Forecast display
 # ============================================================
 
+# Replace the entire forecast_panel function in app.py with this version.
+
 def forecast_panel(
-    col,
-    title,
-    model,
-    label,
-    days,
-    hist,
-    today,
-    true_day=None,
-    fertile_window=False,
-    note=None,
+    col, title, model, label, days, hist, today,
+    true_day=None, fertile_window=False, note=None,
 ):
     with col:
         st.subheader(title)
 
-        # Critical: only use measurements available through today.
+        # only measurements available through today
         if not days.empty:
-            days_so_far = days.loc[
-                days["day"] <= today
-            ].copy()
+            days_so_far = days.loc[days["day"] <= today].copy()
         else:
-            days_so_far = pd.DataFrame(
-                {"day": pd.Series(dtype=float)}
-            )
+            days_so_far = pd.DataFrame({"day": pd.Series(dtype=float)})
 
         try:
-            prediction = model.predict_day(
-                days_so_far,
-                hist,
-                today,
-            )
-        except Exception as error:
-            st.error(f"Prediction failed: {error}")
+            pred = model.predict_day(days_so_far, hist, today)
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
             return
 
-        required_columns = {
-            "day",
-            "p_event_day",
-            "surv",
-        }
-
-        if (
-            prediction is None
-            or prediction.empty
-            or not required_columns.issubset(
-                prediction.columns
-            )
-        ):
-            st.warning(
-                "No forecast is available for this day."
-            )
+        if pred is None or pred.empty or not {"day", "p_event_day", "surv"}.issubset(pred.columns):
+            st.warning("No forecast available for this day.")
             return
 
-        prediction = prediction.copy()
+        pred = pred.copy()
+        pred["day"] = pd.to_numeric(pred["day"], errors="coerce")
+        pred["p_event_day"] = pd.to_numeric(pred["p_event_day"], errors="coerce").fillna(0.0)
+        pred["surv"] = pd.to_numeric(pred["surv"], errors="coerce")
+        pred = pred.dropna(subset=["day"]).sort_values("day")
 
-        prediction["day"] = pd.to_numeric(
-            prediction["day"],
-            errors="coerce",
-        )
-
-        prediction["p_event_day"] = pd.to_numeric(
-            prediction["p_event_day"],
-            errors="coerce",
-        ).fillna(0.0)
-
-        prediction["surv"] = pd.to_numeric(
-            prediction["surv"],
-            errors="coerce",
-        )
-
-        prediction = prediction.loc[
-            prediction["day"] >= today
-        ].dropna(subset=["day"])
-
-        if prediction.empty:
-            st.warning(
-                "No future forecast is available for this day."
-            )
+        # predict_day already returns the forward distribution from `today`.
+        # DO NOT re-filter or re-normalize — that distorts the curve.
+        total = float(pred["p_event_day"].sum())
+        if total <= 0:
+            st.warning("No event probability mass.")
             return
 
-        probability_total = float(
-            prediction["p_event_day"].sum()
-        )
-
-        if probability_total <= 0:
-            st.warning(
-                "The model returned no event probability mass."
-            )
-            return
-
-        peak_row = prediction.loc[
-            prediction["p_event_day"].idxmax()
-        ]
-
-        peak = int(
-            round(float(peak_row["day"]))
-        )
-
+        # --- peak (most likely day) ---
+        peak = int(round(float(pred.loc[pred["p_event_day"].idxmax(), "day"])))
         away = peak - today
+        m1, m2 = st.columns(2)
+        m1.metric(f"Most likely {label}", f"day {peak}", f"{away:+d} days from today")
 
-        metric_1, metric_2 = st.columns(2)
-
-        metric_1.metric(
-            f"Most likely {label}",
-            f"day {peak}",
-            f"{away:+d} days from today",
-        )
-
-        # Calculate the 10th–90th percentile window.
-        ordered = prediction.sort_values(
-            "day"
-        ).copy()
-
-        ordered["normalized_probability"] = (
-            ordered["p_event_day"]
-            / probability_total
-        )
-
-        ordered["cdf"] = (
-            ordered["normalized_probability"]
-            .cumsum()
-        )
-
-        low_rows = ordered.loc[
-            ordered["cdf"] >= 0.10
-        ]
-
-        high_rows = ordered.loc[
-            ordered["cdf"] >= 0.90
-        ]
-
-        if not low_rows.empty and not high_rows.empty:
-            low_day = int(
-                round(float(low_rows.iloc[0]["day"]))
-            )
-
-            high_day = int(
-                round(float(high_rows.iloc[0]["day"]))
-            )
-
-            metric_2.metric(
-                "Likely window",
-                f"day {low_day}–{high_day}",
-            )
+        # --- likely window from the SURVIVAL curve (robust) ---
+        # 10th pct = first day surv drops below 0.90; 90th pct = below 0.10
+        s = pred.dropna(subset=["surv"])
+        lo = s.loc[s["surv"] <= 0.90, "day"]
+        hi = s.loc[s["surv"] <= 0.10, "day"]
+        if len(lo) and len(hi):
+            m2.metric("Likely window",
+                      f"day {int(lo.iloc[0])}–{int(hi.iloc[0])}")
         else:
-            metric_2.metric(
-                "Likely window",
-                "Unavailable",
-            )
+            m2.metric("Likely window", "—")
 
-        # Show the actual event day when it exists.
         if true_day is not None:
-            error = peak - true_day
+            st.metric("Actual event", f"day {true_day}",
+                      f"prediction error {peak - true_day:+d} days")
 
-            st.metric(
-                "Actual event",
-                f"day {true_day}",
-                f"prediction error {error:+d} days",
-            )
-
-        # Fertile window: approximately five days before
-        # predicted ovulation through one day after.
         if fertile_window:
-            fertile_start = peak - 5
-            fertile_end = peak + 1
-
-            if fertile_start <= today <= fertile_end:
-                st.success(
-                    "Predicted fertile window is active now."
-                )
+            fs, fe = peak - 5, peak + 1
+            if fs <= today <= fe:
+                st.success("Predicted fertile window is active now.")
             else:
-                st.info(
-                    "Predicted fertile window: "
-                    f"cycle day {fertile_start}–{fertile_end}"
-                )
+                st.info(f"Predicted fertile window: cycle day {fs}–{fe}")
 
-        # Combine duplicate event days if necessary.
-        probability_chart = (
-            prediction
-            .groupby("day", as_index=True)[
-                "p_event_day"
-            ]
-            .sum()
-            .to_frame("probability")
-        )
+        # --- charts on a CONTINUOUS day axis (fill missing days with 0) ---
+        full_days = np.arange(int(pred["day"].min()), int(pred["day"].max()) + 1)
+        prob = (pred.set_index("day")["p_event_day"]
+                    .reindex(full_days, fill_value=0.0)
+                    .rename("probability"))
+        surv = (pred.set_index("day")["surv"]
+                    .reindex(full_days).ffill()
+                    .rename("not yet occurred"))
+        prob.index.name = "cycle day"
+        surv.index.name = "cycle day"
 
-        survival_chart = (
-            prediction
-            .dropna(subset=["surv"])
-            .groupby("day", as_index=True)["surv"]
-            .last()
-            .to_frame("not yet occurred")
-        )
-
-        st.caption(
-            "Estimated event probability by cycle day"
-        )
-
-        st.bar_chart(
-            probability_chart
-        )
-
-        st.caption(
-            "Estimated probability the event has not occurred"
-        )
-
-        st.line_chart(
-            survival_chart
-        )
+        st.caption("Estimated event probability by cycle day")
+        st.bar_chart(prob)
+        st.caption("Estimated probability the event has not occurred")
+        st.line_chart(surv)
 
         if note:
             st.caption(note)
