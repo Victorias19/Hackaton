@@ -127,13 +127,23 @@ for model_name, model_object in [
 # ============================================================
 
 # Replace the entire forecast_panel function in app.py with this version.
+# Replace the entire forecast_panel function in app.py with this.
+# Adds: shared x-axis (symmetrical panels), fixed heights, per-panel colors,
+# and the "already occurred" guard.
 
 def forecast_panel(
     col, title, model, label, days, hist, today,
     true_day=None, fertile_window=False, note=None,
+    x_range=None, color="#c0392b",
 ):
     with col:
         st.subheader(title)
+
+        # event already happened -> don't forecast into the past
+        if true_day is not None and today >= true_day:
+            st.success(f"{label.capitalize()} already occurred on day {true_day}.")
+            st.caption("Move the slider earlier to see the forecast leading up to it.")
+            return
 
         # only measurements available through today
         if not days.empty:
@@ -157,27 +167,22 @@ def forecast_panel(
         pred["surv"] = pd.to_numeric(pred["surv"], errors="coerce")
         pred = pred.dropna(subset=["day"]).sort_values("day")
 
-        # predict_day already returns the forward distribution from `today`.
-        # DO NOT re-filter or re-normalize — that distorts the curve.
         total = float(pred["p_event_day"].sum())
         if total <= 0:
             st.warning("No event probability mass.")
             return
 
-        # --- peak (most likely day) ---
+        # ---- metrics ----
         peak = int(round(float(pred.loc[pred["p_event_day"].idxmax(), "day"])))
         away = peak - today
         m1, m2 = st.columns(2)
         m1.metric(f"Most likely {label}", f"day {peak}", f"{away:+d} days from today")
 
-        # --- likely window from the SURVIVAL curve (robust) ---
-        # 10th pct = first day surv drops below 0.90; 90th pct = below 0.10
         s = pred.dropna(subset=["surv"])
         lo = s.loc[s["surv"] <= 0.90, "day"]
         hi = s.loc[s["surv"] <= 0.10, "day"]
         if len(lo) and len(hi):
-            m2.metric("Likely window",
-                      f"day {int(lo.iloc[0])}–{int(hi.iloc[0])}")
+            m2.metric("Likely window", f"day {int(lo.iloc[0])}–{int(hi.iloc[0])}")
         else:
             m2.metric("Likely window", "—")
 
@@ -192,25 +197,27 @@ def forecast_panel(
             else:
                 st.info(f"Predicted fertile window: cycle day {fs}–{fe}")
 
-        # --- charts on a CONTINUOUS day axis (fill missing days with 0) ---
-        full_days = np.arange(int(pred["day"].min()), int(pred["day"].max()) + 1)
+        # ---- shared, continuous day axis (symmetrical panels) ----
+        lo_day, hi_day = int(pred["day"].min()), int(pred["day"].max())
+        if x_range is not None:
+            lo_day, hi_day = x_range
+        full_days = np.arange(lo_day, hi_day + 1)
+
         prob = (pred.set_index("day")["p_event_day"]
-                    .reindex(full_days, fill_value=0.0)
-                    .rename("probability"))
+                    .reindex(full_days, fill_value=0.0).rename("probability"))
         surv = (pred.set_index("day")["surv"]
-                    .reindex(full_days).ffill()
-                    .rename("not yet occurred"))
+                    .reindex(full_days).ffill().fillna(1.0).rename("not yet occurred"))
         prob.index.name = "cycle day"
         surv.index.name = "cycle day"
 
+        # ---- colored charts (color set per panel) ----
         st.caption("Estimated event probability by cycle day")
-        st.bar_chart(prob)
+        st.bar_chart(prob, height=260, color=color)
         st.caption("Estimated probability the event has not occurred")
-        st.line_chart(surv)
+        st.line_chart(surv, height=220, color=color)
 
         if note:
             st.caption(note)
-
 
 # ============================================================
 # Page
