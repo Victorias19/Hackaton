@@ -583,7 +583,6 @@ forecast_panel(
     days=days,
     hist=hist,
     today=today,
-    true_day=true_ovulation_day,
     fertile_window=True,
     
 )
