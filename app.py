@@ -15,7 +15,17 @@ import streamlit as st
 from openai import OpenAI
 
 from rag import build_index, retrieve
+import joblib
 
+@st.cache_resource
+def load_cycle_models():
+    return joblib.load("model_menses.pkl"), joblib.load("model_ovulation.pkl")
+
+@st.cache_data
+def load_cycle_data():
+    return (pd.read_csv("cycle_seq.csv"), pd.read_csv("panel.csv"), pd.read_csv("cycle_features.csv"))
+
+from model_def import CyclePredictor
 # ----------------------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------------------
@@ -129,8 +139,7 @@ if uploaded_csv is not None:
 # ----------------------------------------------------------------------------
 st.title("⚡ Demo")
 
-tab_demo, tab_data, tab_viz = st.tabs(["Demo", "Data", "Visualize"])
-
+tab_demo, tab_data, tab_viz, tab_cycle = st.tabs(["Demo", "Data", "Visualize", "Cycle forecast"])
 # ---- TAB 1: DEMO -----------------------------------------------------------
 with tab_demo:
     st.write("Swap the placeholder logic when the challenge is revealed.")
@@ -241,3 +250,89 @@ with tab_viz:
                 st.bar_chart(hist_df)
         except Exception as e:
             st.error(f"Plot error: {e}")
+with tab_cycle:
+    import datetime
+    st.header("Cycle & fertility forecast")
+    st.caption("Enter when your period started; the model forecasts the next "
+               "period and fertile window day by day from wearable signals + history.")
+
+    model_men, model_ov = load_cycle_models()
+    cycle_seq, panel, cycle_features = load_cycle_data()
+
+    mode = st.radio("Mode", ["Use a woman from the data", "Enter manually"],
+                    horizontal=True)
+
+    # ---- gather this woman's cycle rows + history ----
+    if mode == "Use a woman from the data":
+        c1, c2 = st.columns(2)
+        wid = c1.selectbox("Woman (id)", sorted(cycle_seq["id"].unique()))
+        row = cycle_seq[cycle_seq.id == wid].iloc[0]
+        onset, end = row["onset_day"], row["next_onset_day"]
+        days = panel[(panel.id == wid) & (panel.day_in_study >= onset) &
+                     (panel.day_in_study < end)].copy()
+        days["day"] = days["day_in_study"] - onset
+        hist = cycle_features[cycle_features.id == wid].iloc[0].to_dict()
+        max_day = int(days["day"].max()) if len(days) else 20
+        true_len = int(end - onset)
+        c2.metric("This cycle's actual length", f"{true_len} days")
+    else:
+        c1, c2 = st.columns(2)
+        start_date = c1.date_input("My period started on",
+                                   datetime.date.today() - datetime.timedelta(days=10))
+        avg_len = c2.number_input("My usual cycle length (days)", 21, 40, 29)
+        max_day = 40
+        true_len = None
+        # no wearable rows -> model falls back to cohort medians (fill_)
+        days = pd.DataFrame({"day": []})
+        hist = {"prior_cycle_length_mean": avg_len,
+                "prior_cycle_length_sd": 2.0, "n_prior_cycles": 3}
+        days_elapsed = (datetime.date.today() - start_date).days
+        st.info(f"Today is day {days_elapsed} of your cycle.")
+
+    # ---- which forecast ----
+    event = st.radio("Forecast", ["Next period", "Fertile window"], horizontal=True)
+    model = model_men if event == "Next period" else model_ov
+    label = "next period" if event == "Next period" else "ovulation"
+
+    # ---- 'today' = how many days into the cycle ----
+    if mode == "Enter manually":
+        today = st.slider("Today = cycle day", 3, max_day,
+                          min(max(3, days_elapsed), max_day))
+    else:
+        today = st.slider("Today = cycle day", 3, max(4, max_day),
+                          min(10, max_day))
+
+    # ---- predict ----
+    pred = model.predict_day(days, hist, today)
+    pred = pred[pred["day"] >= today]
+
+    if len(pred):
+        peak = int(pred.loc[pred["p_event_day"].idxmax(), "day"])
+        away = peak - today
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric(f"Most likely {label}", f"day {peak}", f"~{away} days away")
+        # 80% window
+        s = pred.sort_values("day")
+        cum = s["p_event_day"].cumsum() / s["p_event_day"].sum()
+        win = s["day"][(cum >= 0.1) & (cum <= 0.9)]
+        if len(win):
+            m2.metric("Likely window", f"day {int(win.min())}–{int(win.max())}")
+        if true_len is not None and event == "Next period":
+            m3.metric("Actual", f"day {true_len}", f"error {peak-true_len:+d} d")
+
+        st.subheader("Probability the event happens each day")
+        st.bar_chart(pred.set_index("day")[["p_event_day"]]
+                     .rename(columns={"p_event_day": "probability"}))
+
+        st.subheader("Chance it hasn't happened yet")
+        st.line_chart(pred.set_index("day")[["surv"]]
+                      .rename(columns={"surv": "not-yet probability"}))
+
+        with st.expander("forecast table"):
+            st.dataframe(pred.reset_index(drop=True), use_container_width=True)
+    else:
+        st.warning("No forecast available for this day.")
+
+    if event == "Fertile window":
+        st.caption("Note: ovulation labels are temperature-estimated, not lab-confirmed.")
