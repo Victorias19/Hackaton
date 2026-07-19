@@ -167,6 +167,8 @@ def _ovulation_passed(days_so_far, today):
 
 OVULATION_CUTOFF = 21          # cycle day after which we treat ovulation as passed
 
+OVULATION_CUTOFF = 21   # cycle day after which ovulation is treated as passed
+
 def forecast_panel(
     col, title, model, label, days, hist, today,
     true_day=None, reference_day=None,
@@ -175,19 +177,18 @@ def forecast_panel(
     with col:
         st.subheader(title)
 
-        # observed measurements available through today
         if not days.empty:
             days_so_far = days.loc[days["day"] <= today].copy()
         else:
             days_so_far = pd.DataFrame({"day": pd.Series(dtype=float)})
 
-        # --- PERIOD: observable event, honest to guard on true_day ---
+        # period: observable event, guard on the true day
         if true_day is not None and today >= true_day:
             st.success(f"{label.capitalize()} already occurred on day {true_day}.")
             st.caption("Move the slider earlier to see the forecast leading up to it.")
             return
 
-        # --- OVULATION: simple biological day cutoff ---
+        # ovulation: simple biological day cutoff
         if fertile_window and today > OVULATION_CUTOFF:
             st.warning(
                 f"Past the typical ovulation window (usually by ~day {OVULATION_CUTOFF}). "
@@ -198,7 +199,6 @@ def forecast_panel(
             st.caption("Move the slider earlier to see the fertile-window forecast.")
             return
 
-        # --- run the forecast ---
         try:
             pred = model.predict_day(days_so_far, hist, today)
         except Exception as e:
@@ -219,7 +219,6 @@ def forecast_panel(
             st.warning("No event probability mass.")
             return
 
-        # ---- metrics ----
         peak = int(round(float(pred.loc[pred["p_event_day"].idxmax(), "day"])))
         away = peak - today
         m1, m2 = st.columns(2)
@@ -233,7 +232,6 @@ def forecast_panel(
         else:
             m2.metric("Likely window", "—")
 
-        # reference day: demo comparison only, never gates the forecast
         actual = true_day if true_day is not None else reference_day
         if actual is not None:
             st.metric("Actual event (reference)", f"day {actual}",
@@ -246,7 +244,6 @@ def forecast_panel(
             else:
                 st.info(f"Predicted fertile window: cycle day {fs}–{fe}")
 
-        # ---- symmetrical, continuous day axis ----
         lo_day, hi_day = int(pred["day"].min()), int(pred["day"].max())
         if x_range is not None:
             lo_day, hi_day = x_range
@@ -599,3 +596,14 @@ forecast_panel(
 
 st.divider()
 
+st.divider()
+shared = (today, today + 45)
+left, right = st.columns(2)
+
+forecast_panel(col=left, title="🩸 Next period", model=model_men, label="next period",
+               days=days, hist=hist, today=today, true_day=true_period_day,
+               x_range=shared, color="#c0392b")
+
+forecast_panel(col=right, title="🌱 Ovulation & fertile window", model=model_ov, label="ovulation",
+               days=days, hist=hist, today=today, true_day=None, reference_day=true_ovulation_day,
+               fertile_window=True, x_range=shared, color="#27ae60")
